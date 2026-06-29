@@ -346,6 +346,29 @@ export async function handleAssistantFailover(params: {
       return sameModelIdleTimeoutRetry();
     }
     params.logAssistantFailoverDecision("surface_error");
+    // Idle timeout means the model never produced a response within the idle
+    // watchdog window. When all retries are exhausted there is no partial output
+    // to synthesize into a normal payload path, so surface it as a terminal
+    // timeout error instead of falling through to continue_normal (which would
+    // let the outer tool loop start another turn and repeat the same timeout).
+    if (!params.externalAbort && params.idleTimedOut) {
+      const message = resolveAssistantFailoverErrorMessage(params);
+      const status =
+        resolveFailoverStatus("timeout") ?? (isTimeoutErrorMessage(message) ? 408 : undefined);
+      return {
+        action: "throw",
+        overloadProfileRotations,
+        error: new FailoverError(message, {
+          reason: "timeout",
+          provider: params.activeErrorContext.provider,
+          model: params.activeErrorContext.model,
+          profileId: params.lastProfileId,
+          authMode: params.authMode,
+          status,
+          rawError: params.lastAssistant?.errorMessage?.trim(),
+        }),
+      };
+    }
     // Only current provider failures throw here. External aborts, timeout
     // payload synthesis, and stale classified text without failoverFailure
     // keep the normal payload path.

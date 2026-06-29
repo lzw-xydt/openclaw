@@ -665,6 +665,51 @@ describe("handleAssistantFailover", () => {
       }
       expect(outcome.retryKind).toBe("same_model_idle_timeout");
     });
+
+    it("throws a timeout FailoverError for idle timeout when retries are exhausted", async () => {
+      // When idleTimedOut is true and all retries (same-model, profile rotation)
+      // are exhausted, the run must surface the error instead of falling through
+      // to continue_normal. Otherwise the outer tool loop sees a "successful"
+      // turn with partial tool calls and restarts another model call, which
+      // times out again — looping until the run iteration cap.
+      const logDecision = vi.fn();
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "surface_error", reason: null },
+          failoverReason: null,
+          timedOut: true,
+          idleTimedOut: true,
+          allowSameModelIdleTimeoutRetry: false,
+          billingFailure: false,
+          logAssistantFailoverDecision: logDecision,
+        }),
+      );
+
+      const err = expectThrownFailoverError(outcome);
+      expect(err.reason).toBe("timeout");
+      expect(err.message).toBe("LLM request timed out.");
+      expect(err.status).toBe(408);
+      expect(logDecision).toHaveBeenCalledWith("surface_error");
+    });
+
+    it("does not throw for idle timeout when externally aborted", async () => {
+      // External aborts (user pressed stop) must never synthesize a provider
+      // error even for idle timeout; the user-visible abort takes precedence.
+      const outcome = await handleAssistantFailover(
+        makeParams({
+          initialDecision: { action: "surface_error", reason: null },
+          externalAbort: true,
+          aborted: true,
+          failoverReason: null,
+          timedOut: true,
+          idleTimedOut: true,
+          allowSameModelIdleTimeoutRetry: false,
+          billingFailure: false,
+        }),
+      );
+
+      expect(outcome.action).toBe("continue_normal");
+    });
   });
 
   describe("fallback_model branch", () => {
