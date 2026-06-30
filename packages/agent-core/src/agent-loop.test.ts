@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { agentLoop, agentLoopContinue, runAgentLoop } from "./agent-loop.js";
 import {
   type AssistantMessage,
+  type AssistantMessageEvent,
   createAssistantMessageEventStream,
   type Context,
   type Message,
@@ -1203,18 +1204,13 @@ describe("streamAssistantResponse mid-stream iterator error", () => {
     // The run should complete (not throw) and return messages.
     expect(messages).toHaveLength(2); // user prompt + assistant
 
-    const assistant = messages[1];
+    const assistant = messages[1] as AssistantMessage;
     expect(assistant.role).toBe("assistant");
     expect(assistant.stopReason).toBe("error");
-    expect(
-      "errorMessage" in assistant && typeof assistant.errorMessage === "string"
-        ? assistant.errorMessage
-        : "",
-    ).toContain("LLM idle timeout");
+    expect(assistant.errorMessage ?? "").toContain("LLM idle timeout");
 
     // Partial text from the text_delta must be preserved in content.
-    const content = assistant.content;
-    expect(content).toContainEqual(
+    expect(assistant.content).toContainEqual(
       expect.objectContaining({ type: "text", text: "partial response" }),
     );
 
@@ -1312,15 +1308,14 @@ describe("streamAssistantResponse mid-stream iterator error", () => {
       streamFn,
     );
 
-    const assistant = messages[1];
+    const assistant = messages[1] as AssistantMessage;
     expect(assistant.role).toBe("assistant");
     expect(assistant.stopReason).toBe("error");
 
-    const content = assistant.content;
-    expect(content).toContainEqual(
+    expect(assistant.content).toContainEqual(
       expect.objectContaining({ type: "thinking", thinking: "Let me think..." }),
     );
-    expect(content).toContainEqual(
+    expect(assistant.content).toContainEqual(
       expect.objectContaining({ type: "text", text: "partial response" }),
     );
   });
